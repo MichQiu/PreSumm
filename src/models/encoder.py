@@ -14,7 +14,7 @@ class Classifier(nn.Module):
 
     def forward(self, x, mask_cls):
         h = self.linear1(x).squeeze(-1)
-        sent_scores = self.sigmoid(h) * mask_cls.float()
+        sent_scores = self.sigmoid(h) * mask_cls.float() # predict from cls label
         return sent_scores
 
 
@@ -87,10 +87,10 @@ class ExtTransformerEncoder(nn.Module):
     def forward(self, top_vecs, mask):
         """ See :obj:`EncoderBase.forward()`"""
 
-        batch_size, n_sents = top_vecs.size(0), top_vecs.size(1)
+        batch_size, n_sents = top_vecs.size(0), top_vecs.size(1) # top_vecs: sentence vectors after token and seg
         pos_emb = self.pos_emb.pe[:, :n_sents]
         x = top_vecs * mask[:, :, None].float()
-        x = x + pos_emb
+        x = x + pos_emb # add positional embedding
 
         for i in range(self.num_inter_layers):
             x = self.transformer_inter[i](i, x, x, 1 - mask)  # all_sents * max_tokens * dim
