@@ -472,7 +472,7 @@ class DecoderState(object):
                                      sizes[3])[:, :, idx]
 
             sent_states.data.copy_(
-                sent_states.data.index_select(1, positions)) # select the sentences from beams based on indices
+                sent_states.data.index_select(1, positions)) # select the words from beams based on indices
 
     def map_batch_fn(self, fn):
         raise NotImplementedError()

@@ -43,7 +43,7 @@ def build_optim(model, opt, checkpoint):
 
     if opt.train_from:
         optim.optimizer.load_state_dict(saved_optimizer_state_dict)
-        if use_gpu(opt):
+        if use_gpu(opt): # move tensors to cuda
             for state in optim.optimizer.state.values():
                 for k, v in state.items():
                     if torch.is_tensor(v):
@@ -61,30 +61,30 @@ class MultipleOptimizer(object):
     """ Implement multiple optimizers needed for sparse adam """
 
     def __init__(self, op):
-        """ ? """
+        """Initialize a list of optimizers"""
         self.optimizers = op
 
     def zero_grad(self):
-        """ ? """
+        """clear grad for each optimizer"""
         for op in self.optimizers:
             op.zero_grad()
 
     def step(self):
-        """ ? """
+        """step for each optimizer"""
         for op in self.optimizers:
             op.step()
 
     @property
     def state(self):
-        """ ? """
+        """Returns a dict holding current optimization state for each optimizer"""
         return {k: v for op in self.optimizers for k, v in op.state.items()}
 
     def state_dict(self):
-        """ ? """
+        """Returns the state of the optimizer as a dict for each optimizer"""
         return [op.state_dict() for op in self.optimizers]
 
     def load_state_dict(self, state_dicts):
-        """ ? """
+        """Loads the optimizer state for each state"""
         assert len(state_dicts) == len(self.optimizers)
         for i in range(len(state_dicts)):
             self.optimizers[i].load_state_dict(state_dicts[i])
@@ -134,7 +134,7 @@ class Optimizer(object):
         self.method = method
         self.lr_decay = lr_decay
         self.start_decay_steps = start_decay_steps
-        self.decay_steps = decay_steps
+        self.decay_steps = decay_steps # decay every x number of steps
         self.start_decay = False
         self._step = 0
         self.betas = [beta1, beta2]
@@ -143,16 +143,16 @@ class Optimizer(object):
         self.warmup_steps = warmup_steps
         self.weight_decay = weight_decay
 
-    def set_parameters(self, params):
-        """ ? """
+    def set_parameters(self, params): # params is a dict containing key-value pairs of optimizer parameters
+        """set parameters of the optimizer"""
         self.params = []
         self.sparse_params = []
         for k, p in params:
             if p.requires_grad:
                 if self.method != 'sparseadam' or "embed" not in k:
-                    self.params.append(p)
+                    self.params.append(p) # append values to params list
                 else:
-                    self.sparse_params.append(p)
+                    self.sparse_params.append(p) # append values to sparse_params list if method states so
         if self.method == 'sgd':
             self.optimizer = optim.SGD(self.params, lr=self.learning_rate)
         elif self.method == 'adagrad':
@@ -172,7 +172,7 @@ class Optimizer(object):
     def _set_rate(self, learning_rate):
         self.learning_rate = learning_rate
         if self.method != 'sparseadam':
-            self.optimizer.param_groups[0]['lr'] = self.learning_rate
+            self.optimizer.param_groups[0]['lr'] = self.learning_rate # set first weight param's lr
         else:
             for op in self.optimizer.optimizers:
                 op.param_groups[0]['lr'] = self.learning_rate
@@ -194,18 +194,18 @@ class Optimizer(object):
 
         else:
             if ((self.start_decay_steps is not None) and (
-                     self._step >= self.start_decay_steps)):
+                     self._step >= self.start_decay_steps)): # start lr decay if current step exceeds decay step
                 self.start_decay = True
             if self.start_decay:
                 if ((self._step - self.start_decay_steps)
-                   % self.decay_steps == 0):
+                   % self.decay_steps == 0): # decay every x steps given by self.decay_steps
                     self.learning_rate = self.learning_rate * self.lr_decay
 
         if self.method != 'sparseadam':
-            self.optimizer.param_groups[0]['lr'] = self.learning_rate
+            self.optimizer.param_groups[0]['lr'] = self.learning_rate # keep lr if not sparse adam
 
         if self.max_grad_norm:
-            clip_grad_norm_(self.params, self.max_grad_norm)
+            clip_grad_norm_(self.params, self.max_grad_norm) # gradient clipping
         self.optimizer.step()
 
 
