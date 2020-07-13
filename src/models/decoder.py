@@ -59,15 +59,17 @@ class TransformerDecoderLayer(nn.Module):
             * all_input `[batch_size x current_step x model_dim]`
 
         """
+        # decoder mask
         dec_mask = torch.gt(tgt_pad_mask +
                             self.mask[:, :tgt_pad_mask.size(1),
                                       :tgt_pad_mask.size(1)], 0)
         input_norm = self.layer_norm_1(inputs)
         all_input = input_norm
+        # check for previous input
         if previous_input is not None:
-            all_input = torch.cat((previous_input, input_norm), dim=1)
+            all_input = torch.cat((previous_input, input_norm), dim=1) # concat inputs
             dec_mask = None
-
+        # masked self-attn
         query = self.self_attn(all_input, all_input, input_norm,
                                      mask=dec_mask,
                                      layer_cache=layer_cache,
@@ -76,6 +78,7 @@ class TransformerDecoderLayer(nn.Module):
         query = self.drop(query) + inputs
 
         query_norm = self.layer_norm_2(query)
+        # self-attn for encoder and decoder
         mid = self.context_attn(memory_bank, memory_bank, query_norm,
                                       mask=src_pad_mask,
                                       layer_cache=layer_cache,
@@ -169,11 +172,13 @@ class TransformerDecoder(nn.Module):
 
         output = self.pos_emb(emb, step)
 
+        # padding masks for target
         src_memory_bank = memory_bank
         padding_idx = self.embeddings.padding_idx
         tgt_pad_mask = tgt_words.data.eq(padding_idx).unsqueeze(1) \
             .expand(tgt_batch, tgt_len, tgt_len)
 
+        # If source masks are given
         if (not memory_masks is None):
             src_len = memory_masks.size(-1)
             src_pad_mask = memory_masks.expand(src_batch, tgt_len, src_len)
@@ -187,9 +192,9 @@ class TransformerDecoder(nn.Module):
 
         for i in range(self.num_layers):
             prev_layer_input = None
-            if state.cache is None:
+            if state.cache is None: # check cache
                 if state.previous_input is not None:
-                    prev_layer_input = state.previous_layer_inputs[i]
+                    prev_layer_input = state.previous_layer_inputs[i] # get prev inputs from state
             output, all_input \
                 = self.transformer_layers[i](
                     output, src_memory_bank,
@@ -199,10 +204,10 @@ class TransformerDecoder(nn.Module):
                     if state.cache is not None else None,
                     step=step)
             if state.cache is None:
-                saved_inputs.append(all_input)
+                saved_inputs.append(all_input) # update inputs (decoder inputs)
 
         if state.cache is None:
-            saved_inputs = torch.stack(saved_inputs)
+            saved_inputs = torch.stack(saved_inputs) # stack saved_inputs
 
         output = self.layer_norm(output)
 
@@ -250,7 +255,7 @@ class TransformerDecoderState(DecoderState):
         else:
             return (self.src,)
 
-    def detach(self):
+    def detach(self): # detach tensors from various attributes
         if self.previous_input is not None:
             self.previous_input = self.previous_input.detach()
         if self.previous_layer_inputs is not None:
@@ -264,16 +269,16 @@ class TransformerDecoderState(DecoderState):
         return state
 
     def _init_cache(self, memory_bank, num_layers):
-        self.cache = {}
+        self.cache = {} # create cache dict for entire state
 
         for l in range(num_layers):
             layer_cache = {
                 "memory_keys": None,
                 "memory_values": None
-            }
+            } # create context keys and values
             layer_cache["self_keys"] = None
-            layer_cache["self_values"] = None
-            self.cache["layer_{}".format(l)] = layer_cache
+            layer_cache["self_values"] = None # create self keys and values
+            self.cache["layer_{}".format(l)] = layer_cache # create dict entry for a layer cache
 
     def repeat_beam_size_times(self, beam_size):
         """ Repeat beam_size times along batch dimension. """
