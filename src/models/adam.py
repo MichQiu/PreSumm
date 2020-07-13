@@ -61,17 +61,17 @@ class Adam(Optimizer):
             for p in group['params']:
                 if p.grad is None:
                     continue
-                grad = p.grad.data
+                grad = p.grad.data # obtain gradients
                 if grad.is_sparse:
                     raise RuntimeError('Adam does not support sparse gradients, please consider SparseAdam instead')
 
-                state = self.state[p]
+                state = self.state[p] # get state of the current param
 
                 # State initialization
                 if len(state) == 0:
                     state['step'] = 0
                     # Exponential moving average of gradient values
-                    state['next_m'] = torch.zeros_like(p.data)
+                    state['next_m'] = torch.zeros_like(p.data) # p.data: parameter tensor data
                     # Exponential moving average of squared gradient values
                     state['next_v'] = torch.zeros_like(p.data)
 
@@ -80,7 +80,9 @@ class Adam(Optimizer):
 
                 # Decay the first and second moment running average coefficient
                 # In-place operations to update the averages at the same time
+                # multiply each element in tensor by scalar and add another scalar scaled by the gradient
                 next_m.mul_(beta1).add_(1 - beta1, grad)
+                # addcmul_: add (1 - beta2) multiplied by grad**2
                 next_v.mul_(beta2).addcmul_(1 - beta2, grad, grad)
                 update = next_m / (next_v.sqrt() + group['eps'])
 
@@ -92,12 +94,12 @@ class Adam(Optimizer):
                 # with the m/v parameters. This is equivalent to adding the square
                 # of the weights to the loss with plain (non-momentum) SGD.
                 if group['weight_decay'] > 0.0:
-                    update += group['weight_decay'] * p.data
+                    update += group['weight_decay'] * p.data # decay weight tensor and add to update
 
                 lr_scheduled = group['lr']
 
-                update_with_lr = lr_scheduled * update
-                p.data.add_(-update_with_lr)
+                update_with_lr = lr_scheduled * update # compute update after applying learning rate
+                p.data.add_(-update_with_lr) # lr is provided as a +ve, therefore, update needs to be -ve
 
                 state['step'] += 1
 
