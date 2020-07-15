@@ -67,7 +67,7 @@ class TransformerEncoderLayer(nn.Module):
         context = self.self_attn(input_norm, input_norm, input_norm,
                                  mask=mask)
         out = self.dropout(context) + inputs
-        return self.feed_forward(out)
+        return self.feed_forward(out) # [batch_size, seq_len, dim]
 
 
 class ExtTransformerEncoder(nn.Module):
@@ -87,9 +87,10 @@ class ExtTransformerEncoder(nn.Module):
     def forward(self, top_vecs, mask):
         """ See :obj:`EncoderBase.forward()`"""
 
-        batch_size, n_sents = top_vecs.size(0), top_vecs.size(1) # top_vecs: sentence vectors after token and seg
+        batch_size, n_sents = top_vecs.size(0), top_vecs.size(1) # top_vecs: sentence vectors output after BERT
         pos_emb = self.pos_emb.pe[:, :n_sents]
-        x = top_vecs * mask[:, :, None].float()
+        # apply CLS masks [batch_size, n_sents, dim]
+        x = top_vecs * mask[:, :, None].float() # mask.size() = [batch_size, n_sent], only at the beginning of the sentence
         x = x + pos_emb # add positional embedding
 
         for i in range(self.num_inter_layers):
@@ -97,6 +98,7 @@ class ExtTransformerEncoder(nn.Module):
 
         x = self.layer_norm(x)
         sent_scores = self.sigmoid(self.wo(x))
+        # squeeze embedding dim to retain batch and sentence dimensions only
         sent_scores = sent_scores.squeeze(-1) * mask.float()
 
         return sent_scores

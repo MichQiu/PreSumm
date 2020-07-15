@@ -23,7 +23,7 @@ def sequence_mask(lengths, max_len=None):
             .type_as(lengths) # set as the same type
             .repeat(batch_size, 1) # repeat the 1D tensor along dim 0 for batch_size number of times, [batch_size, 1]
             .lt(lengths.unsqueeze(1))) # compare the tensor with the sequence lengths tensor, [batch_size, 1]
-    # index that is False == Mask
+    # index that is False == Mask for padding
 
 
 def gelu(x):
@@ -188,7 +188,8 @@ class GlobalAttention(nn.Module):
         if memory_lengths is not None: # create sequence masks if sequence lengths is provided
             mask = sequence_mask(memory_lengths, max_len=align.size(-1))
             mask = mask.unsqueeze(1)  # Make it broadcastable.
-            align.masked_fill_(1 - mask, -float('inf'))
+            # 1 - mask: mask is inverted in this implementation where 0:mask, 1:same
+            align.masked_fill_(1 - mask, -float('inf')) # therefore needs to revert it by 1 - mask to mask values=1
 
         align_vectors = F.softmax(align.view(batch*target_l, source_l), -1)
         align_vectors = align_vectors.view(batch, target_l, source_l)

@@ -26,7 +26,7 @@ def build_optim(model, opt, checkpoint):
         # the method optim.set_parameters(model.parameters()) will overwrite
         # optim.optimizer, and with ith the values stored in
         # optim.optimizer.state_dict()
-        saved_optimizer_state_dict = optim.optimizer.state_dict()
+        saved_optimizer_state_dict = optim.optimizer.state_dict() # saved copy
     else:
         optim = Optimizer(
             opt.optim, opt.learning_rate, opt.max_grad_norm,
@@ -143,7 +143,7 @@ class Optimizer(object):
         self.warmup_steps = warmup_steps
         self.weight_decay = weight_decay
 
-    def set_parameters(self, params): # params is a dict containing key-value pairs of optimizer parameters
+    def set_parameters(self, params): # params is a tuple list containing key-value pairs of optimizer parameters
         """set parameters of the optimizer"""
         self.params = []
         self.sparse_params = []

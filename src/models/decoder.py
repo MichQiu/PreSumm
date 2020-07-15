@@ -144,7 +144,7 @@ class TransformerDecoder(nn.Module):
         self.decoder_type = 'transformer'
         self.num_layers = num_layers
         self.embeddings = embeddings
-        self.pos_emb = PositionalEncoding(dropout,self.embeddings.embedding_dim)
+        self.pos_emb = PositionalEncoding(dropout, self.embeddings.embedding_dim)
 
 
         # Build TransformerDecoder.

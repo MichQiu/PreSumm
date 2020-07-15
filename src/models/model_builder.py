@@ -43,7 +43,7 @@ def build_optim_bert(args, model, checkpoint):
     """ Build optimizer """
 
     if checkpoint is not None:
-        optim = checkpoint['optims'][0]
+        optim = checkpoint['optims'][0] # first optimizer for pretraining
         saved_optimizer_state_dict = optim.optimizer.state_dict()
         optim.optimizer.load_state_dict(saved_optimizer_state_dict)
         if args.visible_gpus != '-1':
@@ -64,6 +64,7 @@ def build_optim_bert(args, model, checkpoint):
             decay_method='noam',
             warmup_steps=args.warmup_steps_bert)
 
+    # get params for BERT only
     params = [(n, p) for n, p in list(model.named_parameters()) if n.startswith('bert.model')]
     optim.set_parameters(params)
 
@@ -74,7 +75,7 @@ def build_optim_dec(args, model, checkpoint):
     """ Build optimizer """
 
     if checkpoint is not None:
-        optim = checkpoint['optims'][1]
+        optim = checkpoint['optims'][1] # second optimizer for finetuning
         saved_optimizer_state_dict = optim.optimizer.state_dict()
         optim.optimizer.load_state_dict(saved_optimizer_state_dict)
         if args.visible_gpus != '-1':
@@ -101,7 +102,7 @@ def build_optim_dec(args, model, checkpoint):
 
     return optim
 
-
+# abstractive generator, consists of linear projection + softmax layers after decoder
 def get_generator(vocab_size, dec_hidden_size, device):
     gen_func = nn.LogSoftmax(dim=-1)
     generator = nn.Sequential(
@@ -115,6 +116,7 @@ def get_generator(vocab_size, dec_hidden_size, device):
 class Bert(nn.Module):
     def __init__(self, large, temp_dir, finetune=False):
         super(Bert, self).__init__()
+        # load pretrained model
         if(large):
             self.model = BertModel.from_pretrained('bert-large-uncased', cache_dir=temp_dir)
         else:
@@ -123,9 +125,9 @@ class Bert(nn.Module):
         self.finetune = finetune
 
     def forward(self, x, segs, mask):
-        if(self.finetune):
+        if(self.finetune): # finetune
             top_vec, _ = self.model(x, segs, attention_mask=mask)
-        else:
+        else: # inference only
             self.eval()
             with torch.no_grad():
                 top_vec, _ = self.model(x, segs, attention_mask=mask)
@@ -149,29 +151,30 @@ class ExtSummarizer(nn.Module):
 
         if(args.max_pos>512):
             my_pos_embeddings = nn.Embedding(args.max_pos, self.bert.model.config.hidden_size)
-            my_pos_embeddings.weight.data[:512] = self.bert.model.embeddings.position_embeddings.weight.data
+            my_pos_embeddings.weight.data[:512] = self.bert.model.embeddings.position_embeddings.weight.data # BERT position encoding upto 512 words
+            # adding more position embedding initialized randomly to embedding weights and finetuned with encoder, [num_embeddings, embedding_dim]
             my_pos_embeddings.weight.data[512:] = self.bert.model.embeddings.position_embeddings.weight.data[-1][None,:].repeat(args.max_pos-512,1)
-            self.bert.model.embeddings.position_embeddings = my_pos_embeddings
+            self.bert.model.embeddings.position_embeddings = my_pos_embeddings # update extended position embedding
 
 
-        if checkpoint is not None:
+        if checkpoint is not None: # load from checkpoint
             self.load_state_dict(checkpoint['model'], strict=True)
-        else:
+        else: # parameter initialization
             if args.param_init != 0.0:
-                for p in self.ext_layer.parameters():
+                for p in self.ext_layer.parameters(): # uniform parameter initialization given a parameter
                     p.data.uniform_(-args.param_init, args.param_init)
             if args.param_init_glorot:
                 for p in self.ext_layer.parameters():
                     if p.dim() > 1:
-                        xavier_uniform_(p)
+                        xavier_uniform_(p) # xavier uniform parameter initialization
 
         self.to(device)
 
     def forward(self, src, segs, clss, mask_src, mask_cls):
-        top_vec = self.bert(src, segs, mask_src)
-        sents_vec = top_vec[torch.arange(top_vec.size(0)).unsqueeze(1), clss]
-        sents_vec = sents_vec * mask_cls[:, :, None].float()
-        sent_scores = self.ext_layer(sents_vec, mask_cls).squeeze(-1)
+        top_vec = self.bert(src, segs, mask_src) # BERT finetune outputs contextual vectors
+        sents_vec = top_vec[torch.arange(top_vec.size(0)).unsqueeze(1), clss] # transform contextual vectors to sentence vectors separated by CLS
+        sents_vec = sents_vec * mask_cls[:, :, None].float() # Apply CLS mask so that CLS vectors are non-zero while all other vectors are 0
+        sent_scores = self.ext_layer(sents_vec, mask_cls).squeeze(-1) # feed through extractive summarizer
         return sent_scores, mask_cls
 
 
@@ -182,7 +185,8 @@ class AbsSummarizer(nn.Module):
         self.device = device
         self.bert = Bert(args.large, args.temp_dir, args.finetune_bert)
 
-        if bert_from_extractive is not None:
+        if bert_from_extractive is not None: # train after extractive model
+            # load extractive layers starting from the 12th layer
             self.bert.model.load_state_dict(
                 dict([(n[11:], p) for n, p in bert_from_extractive.items() if n.startswith('bert.model')]), strict=True)
 
@@ -200,8 +204,9 @@ class AbsSummarizer(nn.Module):
             my_pos_embeddings.weight.data[512:] = self.bert.model.embeddings.position_embeddings.weight.data[-1][None,:].repeat(args.max_pos-512,1)
             self.bert.model.embeddings.position_embeddings = my_pos_embeddings
         self.vocab_size = self.bert.model.config.vocab_size
+        # set target embeddings
         tgt_embeddings = nn.Embedding(self.vocab_size, self.bert.model.config.hidden_size, padding_idx=0)
-        if (self.args.share_emb):
+        if (self.args.share_emb): # embedding sharing from BERT
             tgt_embeddings.weight = copy.deepcopy(self.bert.model.embeddings.word_embeddings.weight)
 
         self.decoder = TransformerDecoder(
@@ -210,13 +215,13 @@ class AbsSummarizer(nn.Module):
             d_ff=self.args.dec_ff_size, dropout=self.args.dec_dropout, embeddings=tgt_embeddings)
 
         self.generator = get_generator(self.vocab_size, self.args.dec_hidden_size, device)
-        self.generator[0].weight = self.decoder.embeddings.weight
+        self.generator[0].weight = self.decoder.embeddings.weight # set first parameter's weights == decoder embedding weights
 
 
         if checkpoint is not None:
             self.load_state_dict(checkpoint['model'], strict=True)
         else:
-            for module in self.decoder.modules():
+            for module in self.decoder.modules(): # reinitialize weights and biases if not loading from checkpoint
                 if isinstance(module, (nn.Linear, nn.Embedding)):
                     module.weight.data.normal_(mean=0.0, std=0.02)
                 elif isinstance(module, nn.LayerNorm):
@@ -229,7 +234,7 @@ class AbsSummarizer(nn.Module):
                     xavier_uniform_(p)
                 else:
                     p.data.zero_()
-            if(args.use_bert_emb):
+            if(args.use_bert_emb): # using BERT embeddings
                 tgt_embeddings = nn.Embedding(self.vocab_size, self.bert.model.config.hidden_size, padding_idx=0)
                 tgt_embeddings.weight = copy.deepcopy(self.bert.model.embeddings.word_embeddings.weight)
                 self.decoder.embeddings = tgt_embeddings
@@ -238,7 +243,8 @@ class AbsSummarizer(nn.Module):
         self.to(device)
 
     def forward(self, src, tgt, segs, clss, mask_src, mask_tgt, mask_cls):
-        top_vec = self.bert(src, segs, mask_src)
-        dec_state = self.decoder.init_decoder_state(src, top_vec)
-        decoder_outputs, state = self.decoder(tgt[:, :-1], top_vec, dec_state)
+        top_vec = self.bert(src, segs, mask_src) # BERT output contextual vector
+        dec_state = self.decoder.init_decoder_state(src, top_vec) # initialize decoder state
+        # feed target(decoder) and output vector through decoder, target vector includes all previous words before the current position
+        decoder_outputs, state = self.decoder(tgt[:, :-1], top_vec, dec_state) # predict the word at the current position
         return decoder_outputs, None
