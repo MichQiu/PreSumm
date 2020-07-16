@@ -30,15 +30,15 @@ class Beam(object):
 
         # The score for each translation on the beam.
         self.scores = self.tt.FloatTensor(size).zero_()
-        self.all_scores = []
+        self.all_scores = [] # list containing all the scores
 
         # The backpointers at each time-step.
         self.prev_ks = []
 
         # The outputs at each time-step.
         self.next_ys = [self.tt.LongTensor(size)
-                        .fill_(pad)] # [bos, token, token, ..., token, eos]
-        self.next_ys[0][0] = bos # first token in bos
+                        .fill_(pad)]
+        self.next_ys[0][0] = bos # first entry is bos
 
         # Has EOS topped the beam yet.
         self._eos = eos
@@ -104,45 +104,48 @@ class Beam(object):
             if self.block_ngram_repeat > 0:
                 ngrams = []
                 le = len(self.next_ys)
-                for j in range(self.next_ys[-1].size(0)):
-                    hyp, _ = self.get_hyp(le - 1, j)
-                    ngrams = set()
+                for j in range(self.next_ys[-1].size(0)): # range: beam size, looping through beams
+                    hyp, _ = self.get_hyp(le - 1, j) # construct hypothesis (timestep = total output length - 1)
+                    ngrams = set() # convert ngrams to a set
                     fail = False
                     gram = []
-                    for i in range(le - 1):
+                    for i in range(le - 1): # loop for sequence under in each beam
                         # Last n tokens, n = block_ngram_repeat
                         gram = (gram +
-                                [hyp[i].item()])[-self.block_ngram_repeat:]
+                                [hyp[i].item()])[-self.block_ngram_repeat:] # obtain ngrams
                         # Skip the blocking if it is in the exclusion list
-                        if set(gram) & self.exclusion_tokens:
+                        if set(gram) & self.exclusion_tokens: # intersection operator for sets
                             continue
-                        if tuple(gram) in ngrams:
-                            fail = True
-                        ngrams.add(tuple(gram))
+                        if tuple(gram) in ngrams: # detected repeated ngrams
+                            fail = True # set blocking status to True
+                        ngrams.add(tuple(gram)) # add current tokens to ngrams
                     if fail:
-                        beam_scores[j] = -10e20
+                        beam_scores[j] = -10e20 # set large -ve scores for this beam, assigning low probability
         else:
-            beam_scores = word_probs[0]
+            beam_scores = word_probs[0] # beam scores = first step word probs
+
         flat_beam_scores = beam_scores.view(-1)
+        # return the k=size largest elements of the given input tensor along dimension 0 in sorted order
+        # best_scores: word probs, best_scores_id: word indices
         best_scores, best_scores_id = flat_beam_scores.topk(self.size, 0,
                                                             True, True)
 
-        self.all_scores.append(self.scores)
-        self.scores = best_scores
+        self.all_scores.append(self.scores) # initial score is all 0
+        self.scores = best_scores # update scores with best scores
 
         # best_scores_id is flattened beam x word array, so calculate which
         # word and beam each score came from
-        prev_k = best_scores_id / num_words
-        self.prev_ks.append(prev_k)
+        prev_k = best_scores_id / num_words # Obtain the beam [beam_size]
+        self.prev_ks.append(prev_k) # append beams
         self.next_ys.append((best_scores_id - prev_k * num_words))
-        self.attn.append(attn_out.index_select(0, prev_k))
+        self.attn.append(attn_out.index_select(0, prev_k)) # select tensors from attention based on prev_k indices
         self.global_scorer.update_global_state(self)
 
         for i in range(self.next_ys[-1].size(0)):
             if self.next_ys[-1][i] == self._eos:
-                global_scores = self.global_scorer.score(self, self.scores)
-                s = global_scores[i]
-                self.finished.append((s, len(self.next_ys) - 1, i))
+                global_scores = self.global_scorer.score(self, self.scores) # prediction based on length penalty
+                s = global_scores[i] # beam scores
+                self.finished.append((s, len(self.next_ys) - 1, i)) # (score, timestep, beam)
 
         # End condition is when top-of-beam is EOS and no global score.
         if self.next_ys[-1][0] == self._eos:
@@ -162,21 +165,21 @@ class Beam(object):
                 self.finished.append((s, len(self.next_ys) - 1, i))
                 i += 1
 
-        self.finished.sort(key=lambda a: -a[0])
+        self.finished.sort(key=lambda a: -a[0]) # sort based on ascending score
         scores = [sc for sc, _, _ in self.finished]
         ks = [(t, k) for _, t, k in self.finished]
         return scores, ks
 
     def get_hyp(self, timestep, k):
         """
-        Walk back to construct the full hypothesis.
+        Walk back to construct the full hypothesis, consist of sequence of word tokens
         """
         hyp, attn = [], []
         for j in range(len(self.prev_ks[:timestep]) - 1, -1, -1): # going back in time
-            hyp.append(self.next_ys[j + 1][k]) # j + 1: output at current timestep, hypothesis
+            hyp.append(self.next_ys[j + 1][k]) # j + 1: output at current timestep, [outputs_len, 1]
             attn.append(self.attn[j][k]) # attention at previous timestep
             k = self.prev_ks[j][k] # k reduces by one as kth position returns k-1 index
-        return hyp[::-1], torch.stack(attn[::-1]) # get the hypothesis without the current step
+        return hyp[::-1], torch.stack(attn[::-1]) # get the hypothesis upto but without the current step
 
 
 class GNMTGlobalScorer(object):
