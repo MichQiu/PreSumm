@@ -37,8 +37,8 @@ class Beam(object):
 
         # The outputs at each time-step.
         self.next_ys = [self.tt.LongTensor(size)
-                        .fill_(pad)]
-        self.next_ys[0][0] = bos
+                        .fill_(pad)] # [bos, token, token, ..., token, eos]
+        self.next_ys[0][0] = bos # first token in bos
 
         # Has EOS topped the beam yet.
         self._eos = eos
@@ -78,7 +78,7 @@ class Beam(object):
 
         Parameters:
 
-        * `word_probs`- probs of advancing from the last step (K x words)
+        * `word_probs`- probs of advancing from the last step (K x vocab_size)
         * `attn_out`- attention at the last step
 
         Returns: True if beam search is complete.
@@ -89,16 +89,16 @@ class Beam(object):
         # force the output to be longer than self.min_length
         cur_len = len(self.next_ys)
         if cur_len < self.min_length:
-            for k in range(len(word_probs)):
-                word_probs[k][self._eos] = -1e20
+            for k in range(len(word_probs)): # out of k beams
+                word_probs[k][self._eos] = -1e20 # set prob of eos to very negative value since we haven't reached min_length
         # Sum the previous scores.
-        if len(self.prev_ks) > 0:
+        if len(self.prev_ks) > 0: # we can only sum scores when beam search has predicted one step worth of sequence
             beam_scores = word_probs + \
                 self.scores.unsqueeze(1).expand_as(word_probs)
             # Don't let EOS have children.
-            for i in range(self.next_ys[-1].size(0)):
-                if self.next_ys[-1][i] == self._eos:
-                    beam_scores[i] = -1e20
+            for i in range(self.next_ys[-1].size(0)): # range: beam size
+                if self.next_ys[-1][i] == self._eos: # if output is eos at i-th beam
+                    beam_scores[i] = -1e20 # set the score for the i-th beam to a large -ve number to prevent further expansion
 
             # Block ngram repeats
             if self.block_ngram_repeat > 0:
@@ -172,11 +172,11 @@ class Beam(object):
         Walk back to construct the full hypothesis.
         """
         hyp, attn = [], []
-        for j in range(len(self.prev_ks[:timestep]) - 1, -1, -1):
-            hyp.append(self.next_ys[j + 1][k])
-            attn.append(self.attn[j][k])
-            k = self.prev_ks[j][k]
-        return hyp[::-1], torch.stack(attn[::-1])
+        for j in range(len(self.prev_ks[:timestep]) - 1, -1, -1): # going back in time
+            hyp.append(self.next_ys[j + 1][k]) # j + 1: output at current timestep, hypothesis
+            attn.append(self.attn[j][k]) # attention at previous timestep
+            k = self.prev_ks[j][k] # k reduces by one as kth position returns k-1 index
+        return hyp[::-1], torch.stack(attn[::-1]) # get the hypothesis without the current step
 
 
 class GNMTGlobalScorer(object):

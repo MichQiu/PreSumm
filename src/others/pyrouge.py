@@ -644,10 +644,10 @@ class Rouge155(object):
 
 if __name__ == "__main__":
     import argparse
-    from utils.argparsers import rouge_path_parser
+    from pyrouge.utils.argparsers import rouge_path_parser
 
-    parser = argparse.ArgumentParser(parents=[rouge_path_parser])
-    args = parser.parse_args()
+    parser = argparse.ArgumentParser(parents=[rouge_path_parser]) # parse home directory containing ROUGE
+    args = parser.parse_args() # Obtain argument namespace
 
-    rouge = Rouge155(args.rouge_home)
+    rouge = Rouge155(args.rouge_home) #
     rouge.save_home_dir()

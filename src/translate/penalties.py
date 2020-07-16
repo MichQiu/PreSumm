@@ -8,7 +8,7 @@ class PenaltyBuilder(object):
 
     Args:
         length_pen (str): option name of length pen
-        cov_pen (str): option name of cov pen
+        cov_pen (str): option name of cov pen, not implemented yet
     """
 
     def __init__(self,  length_pen):
