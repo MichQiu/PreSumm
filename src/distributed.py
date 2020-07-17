@@ -106,7 +106,7 @@ def all_gather_list(data, max_size=4096):
     out_buffers = all_gather_list._out_buffers
 
     enc = pickle.dumps(data)
-    enc_size = len(enc)
+    enc_size = len(enc) # length of encoding
     if enc_size + 2 > max_size:
         raise ValueError(
             'encoded data exceeds max_size: {}'.format(enc_size + 2))
