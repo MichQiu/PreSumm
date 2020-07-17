@@ -44,15 +44,15 @@ class ReportMgrBase(object):
         self.start_time = start_time
 
     def start(self):
-        self.start_time = time.time()
+        self.start_time = time.time() # set report start time to current time
 
     def log(self, *args, **kwargs):
-        logger.info(*args, **kwargs)
+        logger.info(*args, **kwargs) # initiate logger
 
     def report_training(self, step, num_steps, learning_rate,
                         report_stats, multigpu=False):
         """
-        This is the user-defined batch-level traing progress
+        This is the user-defined batch-level training progress
         report function.
 
         Args:
@@ -128,7 +128,7 @@ class ReportMgr(ReportMgrBase):
                                    "progress",
                                    learning_rate,
                                    step)
-        report_stats = Statistics()
+        report_stats = Statistics() # reset statistics
 
         return report_stats
 
@@ -176,29 +176,29 @@ class Statistics(object):
     @staticmethod
     def all_gather_stats(stat, max_size=4096):
         """
-        Gather a `Statistics` object accross multiple process/nodes
+        Gather a `Statistics` object across multiple process/nodes
 
         Args:
             stat(:obj:Statistics): the statistics object to gather
-                accross all processes/nodes
+                across all processes/nodes
             max_size(int): max buffer size to use
 
         Returns:
             `Statistics`, the update stats object
         """
         stats = Statistics.all_gather_stats_list([stat], max_size=max_size)
-        return stats[0]
+        return stats[0] # the first stat obj of the list
 
     @staticmethod
     def all_gather_stats_list(stat_list, max_size=4096):
         from torch.distributed import get_rank
 
         """
-        Gather a `Statistics` list accross all processes/nodes
+        Gather a `Statistics` list across all processes/nodes
 
         Args:
             stat_list(list([`Statistics`])): list of statistics objects to
-                gather accross all processes/nodes
+                gather across all processes/nodes
             max_size(int): max buffer size to use
 
         Returns:
@@ -208,17 +208,17 @@ class Statistics(object):
         all_stats = all_gather_list(stat_list, max_size=max_size)
 
         our_rank = get_rank()
-        our_stats = all_stats[our_rank]
+        our_stats = all_stats[our_rank] # list of Statistics obj
         for other_rank, stats in enumerate(all_stats):
-            if other_rank == our_rank:
+            if other_rank == our_rank: # update current stats with every other stats with distinct ranks
                 continue
-            for i, stat in enumerate(stats):
-                our_stats[i].update(stat, update_n_src_words=True)
+            for i, stat in enumerate(stats): # each stat is a Statistics obj
+                our_stats[i].update(stat, update_n_src_words=True) # update current stats via summing
         return our_stats
 
     def update(self, stat, update_n_src_words=False):
         """
-        Update statistics by suming values with another `Statistics` object
+        Update statistics by summing values with another `Statistics` object
 
         Args:
             stat: another statistic object
@@ -259,6 +259,7 @@ class Statistics(object):
            start (int): start time of step.
         """
         t = self.elapsed_time()
+        # log training info
         logger.info(
             ("Step %2d/%5d; acc: %6.2f; ppl: %5.2f; xent: %4.2f; " +
              "lr: %7.8f; %3.0f/%3.0f tok/s; %6.0f sec")
@@ -270,7 +271,7 @@ class Statistics(object):
                self.n_src_words / (t + 1e-5),
                self.n_words / (t + 1e-5),
                time.time() - start))
-        sys.stdout.flush()
+        sys.stdout.flush() # flush buffer in stdout
 
     def log_tensorboard(self, prefix, writer, learning_rate, step):
         """ display statistics to tensorboard """
