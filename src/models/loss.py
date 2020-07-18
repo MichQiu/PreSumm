@@ -24,7 +24,7 @@ def abs_loss(generator, symbols, vocab_size, device, train=True, label_smoothing
 class LossComputeBase(nn.Module):
     """
     Class for managing efficient loss computation. Handles
-    sharding next step predictions and accumulating mutiple
+    sharding next step predictions and accumulating multiple
     loss computations
 
 
@@ -125,8 +125,8 @@ class LossComputeBase(nn.Module):
 
         """
         batch_stats = Statistics()
-        shard_state = self._make_shard_state(batch, output)
-        for shard in shards(shard_state, shard_size):
+        shard_state = self._make_shard_state(batch, output) # create shard state dict
+        for shard in shards(shard_state, shard_size): # yields shard dict
             loss, stats = self._compute_loss(batch, **shard)
             loss.div(float(normalization)).backward()
             batch_stats.update(stats)
@@ -143,20 +143,20 @@ class LossComputeBase(nn.Module):
         Returns:
             :obj:`onmt.utils.Statistics` : statistics for this batch.
         """
-        pred = scores.max(1)[1]
-        non_padding = target.ne(self.padding_idx)
+        pred = scores.max(1)[1] # get the indices of the max scores
+        non_padding = target.ne(self.padding_idx) # get non-padding tensor words
         num_correct = pred.eq(target) \
                           .masked_select(non_padding) \
                           .sum() \
-                          .item()
-        num_non_padding = non_padding.sum().item()
-        return Statistics(loss.item(), num_non_padding, num_correct)
+                          .item() # get the number of correct outputs when compared to the target
+        num_non_padding = non_padding.sum().item() # calculate the total number of non-padded words
+        return Statistics(loss.item(), num_non_padding, num_correct) # initialize Statistics object
 
     def _bottle(self, _v):
-        return _v.view(-1, _v.size(2))
+        return _v.view(-1, _v.size(2)) # group all sentences into one batch
 
     def _unbottle(self, _v, batch_size):
-        return _v.view(-1, batch_size, _v.size(1))
+        return _v.view(-1, batch_size, _v.size(1)) # rebatch grouped sentences
 
 
 class LabelSmoothingLoss(nn.Module):
@@ -171,9 +171,10 @@ class LabelSmoothingLoss(nn.Module):
         super(LabelSmoothingLoss, self).__init__()
 
         smoothing_value = label_smoothing / (tgt_vocab_size - 2)
+        # create tensor of size (tgt_vocab_size) filled with smoothing_value
         one_hot = torch.full((tgt_vocab_size,), smoothing_value)
-        one_hot[self.padding_idx] = 0
-        self.register_buffer('one_hot', one_hot.unsqueeze(0))
+        one_hot[self.padding_idx] = 0 # set padding to 0
+        self.register_buffer('one_hot', one_hot.unsqueeze(0)) # add extra dimension for batch
         self.confidence = 1.0 - label_smoothing
 
     def forward(self, output, target):
@@ -181,11 +182,13 @@ class LabelSmoothingLoss(nn.Module):
         output (FloatTensor): batch_size x n_classes
         target (LongTensor): batch_size
         """
-        model_prob = self.one_hot.repeat(target.size(0), 1)
+        model_prob = self.one_hot.repeat(target.size(0), 1) # repeat one_hot by batch_size along dim=0
+        # scatter along dim=1 at batch_size index from self.confidence
         model_prob.scatter_(1, target.unsqueeze(1), self.confidence)
+        # mask padding indices with 0
         model_prob.masked_fill_((target == self.padding_idx).unsqueeze(1), 0)
 
-        return F.kl_div(output, model_prob, reduction='sum')
+        return F.kl_div(output, model_prob, reduction='sum') # compute KL-divergence via sum reduction
 
 
 class NMTLossCompute(LossComputeBase):
@@ -200,11 +203,11 @@ class NMTLossCompute(LossComputeBase):
         if label_smoothing > 0:
             self.criterion = LabelSmoothingLoss(
                 label_smoothing, vocab_size, ignore_index=self.padding_idx
-            )
+            ) # label smoothing loss
         else:
             self.criterion = nn.NLLLoss(
                 ignore_index=self.padding_idx, reduction='sum'
-            )
+            ) # negative log-likelihood loss
 
     def _make_shard_state(self, batch, output):
         return {
@@ -214,18 +217,18 @@ class NMTLossCompute(LossComputeBase):
 
     def _compute_loss(self, batch, output, target):
         bottled_output = self._bottle(output)
-        scores = self.generator(bottled_output)
-        gtruth =target.contiguous().view(-1)
+        scores = self.generator(bottled_output) # obtain scores from bottled output
+        gtruth =target.contiguous().view(-1) # transform target to a 1-D tensor
 
-        loss = self.criterion(scores, gtruth)
+        loss = self.criterion(scores, gtruth) # compute loss
 
-        stats = self._stats(loss.clone(), scores, gtruth)
+        stats = self._stats(loss.clone(), scores, gtruth) # obtain stats from results
 
         return loss, stats
 
 
 def filter_shard_state(state, shard_size=None):
-    """ ? """
+    """Split shard states in separate shards """
     for k, v in state.items():
         if shard_size is None:
             yield k, v
@@ -233,8 +236,8 @@ def filter_shard_state(state, shard_size=None):
         if v is not None:
             v_split = []
             if isinstance(v, torch.Tensor):
-                for v_chunk in torch.split(v, shard_size):
-                    v_chunk = v_chunk.data.clone()
+                for v_chunk in torch.split(v, shard_size): # split tensors in number of shards
+                    v_chunk = v_chunk.data.clone() # make a copy
                     v_chunk.requires_grad = v.requires_grad
                     v_split.append(v_chunk)
             yield k, (v, v_split)
@@ -267,7 +270,8 @@ def shards(state, shard_size, eval_only=False):
         # state is a dictionary of sequences of tensor-like but we
         # want a sequence of dictionaries of tensors.
         # First, unzip the dictionary into a sequence of keys and a
-        # sequence of tensor-like sequences.
+        # sequence of tensor-like sequences. keys.size(): (n_keys). values.size(): (n_keys)
+        # keys: ('output', 'target), values: ([shard, shard, ..., shard], [shard, shard, ..., shard])
         keys, values = zip(*((k, [v_chunk for v_chunk in v_split])
                              for k, (_, v_split) in non_none.items()))
 
@@ -277,13 +281,15 @@ def shards(state, shard_size, eval_only=False):
         # over the shards, not over the keys: therefore, the values need
         # to be re-zipped by shard and then each shard can be paired
         # with the keys.
-        for shard_tensors in zip(*values):
-            yield dict(zip(keys, shard_tensors))
+        # * unpacks the sequence/collection
+        for shard_tensors in zip(*values): # shard_tensors: [output_tensor, target_tensor]
+            yield dict(zip(keys, shard_tensors)) # {'output': output_tensor, 'target': target_tensor}
 
         # Assumed backprop'd
         variables = []
         for k, (v, v_split) in non_none.items():
             if isinstance(v, torch.Tensor) and state[k].requires_grad:
+                # extend by (shard, shard_grad)
                 variables.extend(zip(torch.split(state[k], shard_size),
                                      [v_chunk.grad for v_chunk in v_split]))
         inputs, grads = zip(*variables)
