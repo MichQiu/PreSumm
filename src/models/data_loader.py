@@ -11,33 +11,39 @@ from others.logging import logger
 
 class Batch(object):
     def _pad(self, data, pad_id, width=-1):
+        """Add padding"""
         if (width == -1):
-            width = max(len(d) for d in data)
-        rtn_data = [d + [pad_id] * (width - len(d)) for d in data]
+            width = max(len(d) for d in data) # get max sequence length
+        rtn_data = [d + [pad_id] * (width - len(d)) for d in data] # add padding to all sequences
         return rtn_data
 
     def __init__(self, data=None, device=None, is_test=False):
         """Create a Batch from a list of examples."""
         if data is not None:
             self.batch_size = len(data)
+            # get data for different token types
             pre_src = [x[0] for x in data]
             pre_tgt = [x[1] for x in data]
             pre_segs = [x[2] for x in data]
             pre_clss = [x[3] for x in data]
             pre_src_sent_labels = [x[4] for x in data]
 
+            # Add padding to source and target data
             src = torch.tensor(self._pad(pre_src, 0))
             tgt = torch.tensor(self._pad(pre_tgt, 0))
 
+            # add padding to segment embeddings
             segs = torch.tensor(self._pad(pre_segs, 0))
-            mask_src = 1 - (src == 0)
-            mask_tgt = 1 - (tgt == 0)
+            # Invert masking for source and target
+            mask_src = ~(src == 0)
+            mask_tgt = ~(tgt == 0)
 
 
             clss = torch.tensor(self._pad(pre_clss, -1))
             src_sent_labels = torch.tensor(self._pad(pre_src_sent_labels, 0))
-            mask_cls = 1 - (clss == -1)
+            mask_cls = ~(clss == -1)
             clss[clss == -1] = 0
+            # set attributes
             setattr(self, 'clss', clss.to(device))
             setattr(self, 'mask_cls', mask_cls.to(device))
             setattr(self, 'src_sent_labels', src_sent_labels.to(device))
@@ -80,6 +86,7 @@ def load_dataset(args, corpus_type, shuffle):
                     (corpus_type, pt_file, len(dataset)))
         return dataset
 
+    # Return a possibly-empty list of path names that match pathname
     # Sort the glob output by file name (by increasing indexes).
     pts = sorted(glob.glob(args.bert_data_path + '.' + corpus_type + '.[0-9]*.pt'))
     if pts:
@@ -95,15 +102,16 @@ def load_dataset(args, corpus_type, shuffle):
 
 
 def abs_batch_size_fn(new, count):
-    src, tgt = new[0], new[1]
+    """Set data maximum attributes and obtain number of tokens in each batch"""
+    src, tgt = new[0], new[1] # see DataLoader.preprocess return statement
     global max_n_sents, max_n_tokens, max_size
     if count == 1:
         max_size = 0
         max_n_sents=0
         max_n_tokens=0
-    max_n_sents = max(max_n_sents, len(tgt))
+    max_n_sents = max(max_n_sents, len(tgt)) # max no. of tokens in target summary
     max_size = max(max_size, max_n_sents)
-    src_elements = count * max_size
+    src_elements = count * max_size # count = number of sentences in minibatch (batch_size)
     if (count > 6):
         return src_elements + 1e3
     return src_elements
@@ -118,7 +126,7 @@ def ext_batch_size_fn(new, count):
         max_size = 0
         max_n_sents = 0
         max_n_tokens = 0
-    max_n_sents = max(max_n_sents, len(src))
+    max_n_sents = max(max_n_sents, len(src)) # max number of sentences in the source doc
     max_size = max(max_size, max_n_sents)
     src_elements = count * max_size
     return src_elements
@@ -149,7 +157,7 @@ class Dataloader(object):
             # Drop the current dataset for decreasing memory
             if hasattr(self, "cur_dataset"):
                 self.cur_dataset = None
-                gc.collect()
+                gc.collect() # Garbage collect and frees memory
                 del self.cur_dataset
                 gc.collect()
 
@@ -174,12 +182,13 @@ class DataIterator(object):
         self.sort_key = lambda x: len(x[1])
 
         self._iterations_this_epoch = 0
-        if (self.args.task == 'abs'):
+        if (self.args.task == 'abs'): # Set batch size for abs or ext
             self.batch_size_fn = abs_batch_size_fn
         else:
             self.batch_size_fn = ext_batch_size_fn
 
     def data(self):
+        """Returns data with the option of shuffle"""
         if self.shuffle:
             random.shuffle(self.dataset)
         xs = self.dataset
@@ -191,6 +200,8 @@ class DataIterator(object):
 
 
     def preprocess(self, ex, is_test):
+        """ex: Examples"""
+        # get examples for different token types
         src = ex['src']
         tgt = ex['tgt'][:self.args.max_tgt_len][:-1]+[2]
         src_sent_labels = ex['src_sent_labels']
@@ -204,7 +215,7 @@ class DataIterator(object):
         end_id = [src[-1]]
         src = src[:-1][:self.args.max_pos - 1] + end_id
         segs = segs[:self.args.max_pos]
-        max_sent_id = bisect.bisect_left(clss, self.args.max_pos)
+        max_sent_id = bisect.bisect_left(clss, self.args.max_pos) # max clss index that is smaller than max_pos
         src_sent_labels = src_sent_labels[:max_sent_id]
         clss = clss[:max_sent_id]
         # src_txt = src_txt[:max_sent_id]
@@ -217,21 +228,23 @@ class DataIterator(object):
             return src, tgt, segs, clss, src_sent_labels
 
     def batch_buffer(self, data, batch_size):
-        minibatch, size_so_far = [], 0
-        for ex in data:
+        # batch_size = number of elements in each batch
+        minibatch, size_so_far = [], 0 # minibatch: [tup, tup, ..., tup]
+        for ex in data: # loop over every example in data
             if(len(ex['src'])==0):
                 continue
             ex = self.preprocess(ex, self.is_test)
             if(ex is None):
                 continue
-            minibatch.append(ex)
-            size_so_far = self.batch_size_fn(ex, len(minibatch))
+            minibatch.append(ex) # ex(tuple): ('src', 'tgt', ...), minibatch(list): [ex1, ex2, ..., exn]
+            size_so_far = self.batch_size_fn(ex, len(minibatch)) # get max_size * no. of tokens in minibatch
             if size_so_far == batch_size:
                 yield minibatch
-                minibatch, size_so_far = [], 0
+                minibatch, size_so_far = [], 0 # reset variables
             elif size_so_far > batch_size:
-                yield minibatch[:-1]
+                yield minibatch[:-1] # set minibatch up to the current appended ex (exclusive)
                 minibatch, size_so_far = minibatch[-1:], self.batch_size_fn(ex, 1)
+            # if size_so_far < batch_size, continue the loop
         if minibatch:
             yield minibatch
 
@@ -256,25 +269,28 @@ class DataIterator(object):
         for buffer in self.batch_buffer(data, self.batch_size * 300):
 
             if (self.args.task == 'abs'):
-                p_batch = sorted(buffer, key=lambda x: len(x[2]))
-                p_batch = sorted(p_batch, key=lambda x: len(x[1]))
+                p_batch = sorted(buffer, key=lambda x: len(x[2])) # sort by length of segs
+                p_batch = sorted(p_batch, key=lambda x: len(x[1])) # sort by length of tgt
             else:
                 p_batch = sorted(buffer, key=lambda x: len(x[2]))
 
-            p_batch = self.batch(p_batch, self.batch_size)
+            p_batch = self.batch(p_batch, self.batch_size) # create new minibatches after sorting
 
 
-            p_batch = list(p_batch)
+            p_batch = list(p_batch) # create a list of minibatches
             if (self.shuffle):
                 random.shuffle(p_batch)
-            for b in p_batch:
+            yield p_batch
+            '''
+            for b in p_batch: # b = minibatch
                 if(len(b)==0):
                     continue
                 yield b
+            '''
 
     def __iter__(self):
         while True:
-            self.batches = self.create_batches()
+            self.batches = self.create_batches() #
             for idx, minibatch in enumerate(self.batches):
                 # fast-forward if loaded from state
                 if self._iterations_this_epoch > idx:
@@ -286,7 +302,7 @@ class DataIterator(object):
                 yield batch
             return
 
-
+'''
 class TextDataloader(object):
     def __init__(self, args, datasets, batch_size,
                  device, shuffle, is_test):
@@ -377,3 +393,4 @@ class TextDataloader(object):
 
                 yield batch
             return
+'''

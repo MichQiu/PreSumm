@@ -183,13 +183,13 @@ class GlobalAttention(nn.Module):
         if memory_masks is not None: # impose sequence masks if provided
             memory_masks = memory_masks.transpose(0,1)
             memory_masks = memory_masks.transpose(1,2)
-            align.masked_fill_(1 - memory_masks.byte(), -float('inf'))
+            align.masked_fill_(~memory_masks.byte(), -float('inf'))
 
         if memory_lengths is not None: # create sequence masks if sequence lengths is provided
             mask = sequence_mask(memory_lengths, max_len=align.size(-1))
             mask = mask.unsqueeze(1)  # Make it broadcastable.
             # 1 - mask: mask is inverted in this implementation where 0:mask, 1:same
-            align.masked_fill_(1 - mask, -float('inf')) # therefore needs to revert it by 1 - mask to mask values=1
+            align.masked_fill_(~mask, -float('inf')) # therefore needs to revert it by 1 - mask to mask values=1
 
         align_vectors = F.softmax(align.view(batch*target_l, source_l), -1)
         align_vectors = align_vectors.view(batch, target_l, source_l)

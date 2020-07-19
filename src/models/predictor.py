@@ -54,7 +54,7 @@ class Translator(object):
         self.args = args
         self.model = model
         self.generator = self.model.generator
-        self.vocab = vocab
+        self.vocab = vocab # (BertTokenizer)
         self.symbols = symbols
         self.start_token = symbols['BOS']
         self.end_token = symbols['EOS']
@@ -85,7 +85,7 @@ class Translator(object):
         # vocab = self.fields["tgt"].vocab
         tokens = []
         for tok in pred:
-            tok = int(tok)
+            tok = int(tok) # ensure token is int so that it can be converted later
             tokens.append(tok)
             if tokens[-1] == self.end_token:
                 tokens = tokens[:-1]
@@ -104,19 +104,19 @@ class Translator(object):
 
         translations = []
         for b in range(batch_size):
-            pred_sents = self.vocab.convert_ids_to_tokens([int(n) for n in preds[b][0]])
-            pred_sents = ' '.join(pred_sents).replace(' ##','')
-            gold_sent = ' '.join(tgt_str[b].split())
+            pred_sents = self.vocab.convert_ids_to_tokens([int(n) for n in preds[b][0]]) # preds[batch][first element == prediction]
+            pred_sents = ' '.join(pred_sents).replace(' ##','') # join tokens in sentence
+            gold_sent = ' '.join(tgt_str[b].split()) # construct gold sentence
             # translation = Translation(fname[b],src[:, b] if src is not None else None,
             #                           src_raw, pred_sents,
             #                           attn[b], pred_score[b], gold_sent,
             #                           gold_score[b])
             # src = self.spm.DecodeIds([int(t) for t in translation_batch['batch'].src[0][5] if int(t) != len(self.spm)])
-            raw_src = [self.vocab.ids_to_tokens[int(t)] for t in src[b]][:500]
-            raw_src = ' '.join(raw_src)
+            raw_src = [self.vocab.ids_to_tokens[int(t)] for t in src[b]][:500] # list of vocab tokens in source sent (max size = 500)
+            raw_src = ' '.join(raw_src) # join tokens to form raw sentence
             translation = (pred_sents, gold_sent, raw_src)
             # translation = (pred_sents[0], gold_sent)
-            translations.append(translation)
+            translations.append(translation) # append translation result tuples
 
         return translations
 
@@ -125,8 +125,10 @@ class Translator(object):
                   attn_debug=False):
 
         self.model.eval()
+        # setting gold and candidate result paths
         gold_path = self.args.result_path + '.%d.gold' % step
         can_path = self.args.result_path + '.%d.candidate' % step
+        # opening gold and candidate output files
         self.gold_out_file = codecs.open(gold_path, 'w', 'utf-8')
         self.can_out_file = codecs.open(can_path, 'w', 'utf-8')
 
@@ -135,6 +137,7 @@ class Translator(object):
         self.gold_out_file = codecs.open(gold_path, 'w', 'utf-8')
         self.can_out_file = codecs.open(can_path, 'w', 'utf-8')
 
+        # raw src
         raw_src_path = self.args.result_path + '.%d.raw_src' % step
         self.src_out_file = codecs.open(raw_src_path, 'w', 'utf-8')
 
