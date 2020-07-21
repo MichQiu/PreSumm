@@ -94,7 +94,7 @@ class Trainer(object):
         self.gpu_rank = gpu_rank
         self.report_manager = report_manager
 
-        self.loss = torch.nn.BCELoss(reduction='none')
+        self.loss = torch.nn.BCELoss(reduction='none') # Binary Cross Entropy loss for assigning 1 or 0 to a sent
         assert grad_accum_count > 0
         # Set model in training mode.
         if (model):
@@ -191,7 +191,7 @@ class Trainer(object):
                 sent_scores, mask = self.model(src, segs, clss, mask, mask_cls)
 
                 loss = self.loss(sent_scores, labels.float())
-                loss = (loss * mask.float()).sum()
+                loss = (loss * mask.float()).sum() # apply mask and sum loss
                 batch_stats = Statistics(float(loss.cpu().data.numpy()), len(labels))
                 stats.update(batch_stats)
             self._report_step(0, step, valid_stats=stats)
@@ -232,7 +232,7 @@ class Trainer(object):
                 with torch.no_grad():
                     for batch in test_iter:
                         src = batch.src
-                        labels = batch.src_sent_labels
+                        labels = batch.src_sent_labels # sentence labels
                         segs = batch.segs
                         clss = batch.clss
                         mask = batch.mask_src
@@ -245,7 +245,7 @@ class Trainer(object):
                             selected_ids = [list(range(batch.clss.size(1)))] * batch.batch_size
                         elif (cal_oracle):
                             selected_ids = [[j for j in range(batch.clss.size(1)) if labels[i][j] == 1] for i in
-                                            range(batch.batch_size)]
+                                            range(batch.batch_size)] # oracle summaries
                         else:
                             sent_scores, mask = self.model(src, segs, clss, mask, mask_cls)
 
@@ -256,6 +256,7 @@ class Trainer(object):
 
                             sent_scores = sent_scores + mask.float()
                             sent_scores = sent_scores.cpu().data.numpy()
+                            # return sorted list of sent_scores in indices form, -sent_scores allow larger sent_scores to be at the front
                             selected_ids = np.argsort(-sent_scores, 1)
                         # selected_ids = np.sort(selected_ids,1)
                         for i, idx in enumerate(selected_ids):
@@ -266,7 +267,7 @@ class Trainer(object):
                                 if (j >= len(batch.src_str[i])):
                                     continue
                                 candidate = batch.src_str[i][j].strip()
-                                if (self.args.block_trigram):
+                                if (self.args.block_trigram): # trigram blocking
                                     if (not _block_tri(candidate, _pred)):
                                         _pred.append(candidate)
                                 else:

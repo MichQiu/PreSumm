@@ -11,18 +11,19 @@ from others.utils import test_rouge, rouge_results_to_str
 
 
 def _tally_parameters(model):
+    """Calculate the number of parameters within the model"""
     n_params = sum([p.nelement() for p in model.parameters()])
     return n_params
 
 
-def build_trainer(args, device_id, model, optims,loss):
+def build_trainer(args, device_id, model, optims, loss):
     """
     Simplify `Trainer` creation based on user `opt`s*
     Args:
         opt (:obj:`Namespace`): user options (usually from argument parsing)
         model (:obj:`onmt.models.NMTModel`): the model to train
         fields (dict): dict of fields
-        optim (:obj:`onmt.utils.Optimizer`): optimizer used during training
+        optims (:obj:`onmt.utils.Optimizer`): optimizer used during training
         data_type (str): string describing the type of data
             e.g. "text", "img", "audio"
         model_saver(:obj:`onmt.models.ModelSaverBase`): the utility object
@@ -32,7 +33,7 @@ def build_trainer(args, device_id, model, optims,loss):
 
 
     grad_accum_count = args.accum_count
-    n_gpu = args.world_size
+    n_gpu = args.world_size # number of processes
 
     if device_id >= 0:
         gpu_rank = int(args.gpu_ranks[device_id])
@@ -92,7 +93,7 @@ class Trainer(object):
         self.save_checkpoint_steps = args.save_checkpoint_steps
         self.model = model
         self.optims = optims
-        self.grad_accum_count = grad_accum_count
+        self.grad_accum_count = grad_accum_count # setting the gradient accumulation count in prior
         self.n_gpu = n_gpu
         self.gpu_rank = gpu_rank
         self.report_manager = report_manager
@@ -127,7 +128,7 @@ class Trainer(object):
         # step =  self.optim._step + 1
         step =  self.optims[0]._step + 1
 
-        true_batchs = []
+        true_batchs = [] # batch list
         accum = 0
         normalization = 0
         train_iter = train_iter_fct()
@@ -143,7 +144,7 @@ class Trainer(object):
                 if self.n_gpu == 0 or (i % self.n_gpu == self.gpu_rank):
 
                     true_batchs.append(batch)
-                    num_tokens = batch.tgt[:, 1:].ne(self.loss.padding_idx).sum()
+                    num_tokens = batch.tgt[:, 1:].ne(self.loss.padding_idx).sum() # get no. of tokens (!= 0)
                     normalization += num_tokens.item()
                     accum += 1
                     if accum == self.grad_accum_count:
@@ -151,7 +152,7 @@ class Trainer(object):
                         if self.n_gpu > 1:
                             normalization = sum(distributed
                                                 .all_gather_list
-                                                (normalization))
+                                                (normalization)) # get all normalization data from different GPUs
 
                         self._gradient_accumulation(
                             true_batchs, normalization, total_stats,
@@ -162,11 +163,11 @@ class Trainer(object):
                             self.optims[0].learning_rate,
                             report_stats)
 
-                        true_batchs = []
+                        true_batchs = [] # reset
                         accum = 0
                         normalization = 0
                         if (step % self.save_checkpoint_steps == 0 and self.gpu_rank == 0):
-                            self._save(step)
+                            self._save(step) # save checkpoint steps
 
                         step += 1
                         if step > train_steps:
@@ -206,7 +207,7 @@ class Trainer(object):
     def _gradient_accumulation(self, true_batchs, normalization, total_stats,
                                report_stats):
         if self.grad_accum_count > 1:
-            self.model.zero_grad()
+            self.model.zero_grad() # set gradient to zero
 
         for batch in true_batchs:
             if self.grad_accum_count == 1:
@@ -242,7 +243,7 @@ class Trainer(object):
                     o.step()
 
         # in case of multi step gradient accumulation,
-        # update only after accum batches
+        # update only after accum batches, skips previous loop
         if self.grad_accum_count > 1:
             if self.n_gpu > 1:
                 grads = [p.grad.data for p in self.model.parameters()
@@ -262,6 +263,7 @@ class Trainer(object):
         """
         # Set model in validating mode.
         def _get_ngrams(n, text):
+            """return all n_grams in the text"""
             ngram_set = set()
             text_length = len(text)
             max_index_ngram_start = text_length - n
@@ -270,10 +272,10 @@ class Trainer(object):
             return ngram_set
 
         def _block_tri(c, p):
-            tri_c = _get_ngrams(3, c.split())
-            for s in p:
+            tri_c = _get_ngrams(3, c.split()) # c: candidate sentence
+            for s in p: # s: Summary
                 tri_s = _get_ngrams(3, s.split())
-                if len(tri_c.intersection(tri_s))>0:
+                if len(tri_c.intersection(tri_s))>0: # skip sentence c if there is a trigram overlap
                     return True
             return False
 
@@ -290,33 +292,34 @@ class Trainer(object):
                         gold = []
                         pred = []
                         if (cal_lead):
+                            # list of cls tokens ids multiplied by batch size, [batch_size]
                             selected_ids = [list(range(batch.clss.size(1)))] * batch.batch_size
                         for i, idx in enumerate(selected_ids):
                             _pred = []
-                            if(len(batch.src_str[i])==0):
+                            if(len(batch.src_str[i])==0): # continue if length of source is 0
                                 continue
-                            for j in selected_ids[i][:len(batch.src_str[i])]:
-                                if(j>=len( batch.src_str[i])):
+                            for j in selected_ids[i][:len(batch.src_str[i])]: #
+                                if(j>=len( batch.src_str[i])): # continue if index is large or equal to sentence length
                                     continue
-                                candidate = batch.src_str[i][j].strip()
-                                _pred.append(candidate)
+                                candidate = batch.src_str[i][j].strip() # strip whitespaces before and after the token
+                                _pred.append(candidate) # append candidate tokens
 
                                 if ((not cal_oracle) and (not self.args.recall_eval) and len(_pred) == 3):
                                     break
 
-                            _pred = '<q>'.join(_pred)
-                            if(self.args.recall_eval):
+                            _pred = '<q>'.join(_pred) # join tokens with <q> form a sentence
+                            if(self.args.recall_eval): # evaluate using recall
                                 _pred = ' '.join(_pred.split()[:len(batch.tgt_str[i].split())])
 
-                            pred.append(_pred)
-                            gold.append(batch.tgt_str[i])
+                            pred.append(_pred) # append predicted sentence
+                            gold.append(batch.tgt_str[i]) # append ground truth sentence
 
                         for i in range(len(gold)):
-                            save_gold.write(gold[i].strip()+'\n')
+                            save_gold.write(gold[i].strip()+'\n') # save each sentence with newline
                         for i in range(len(pred)):
                             save_pred.write(pred[i].strip()+'\n')
         if(step!=-1 and self.args.report_rouge):
-            rouges = test_rouge(self.args.temp_dir, can_path, gold_path)
+            rouges = test_rouge(self.args.temp_dir, can_path, gold_path) # test rouge scores
             logger.info('Rouges at step %d \n%s' % (step, rouge_results_to_str(rouges)))
         self._report_step(0, step, valid_stats=stats)
 
@@ -336,11 +339,12 @@ class Trainer(object):
             'opt': self.args,
             'optims': self.optims,
         }
+        # establish checkpoint path
         checkpoint_path = os.path.join(self.args.model_path, 'model_step_%d.pt' % step)
         logger.info("Saving checkpoint %s" % checkpoint_path)
         # checkpoint_path = '%s_step_%d.pt' % (FLAGS.model_path, step)
         if (not os.path.exists(checkpoint_path)):
-            torch.save(checkpoint, checkpoint_path)
+            torch.save(checkpoint, checkpoint_path) # save checkpoint path
             return checkpoint, checkpoint_path
 
     def _start_report_manager(self, start_time=None):
