@@ -4,7 +4,7 @@
 
 
 def _get_ngrams(n, text):
-    """Calcualtes n-grams.
+    """Calculates n-grams.
 
     Args:
       n: which n-grams to calculate
