@@ -156,11 +156,12 @@ class Translator(object):
                     pred, gold, src = trans
                     pred_str = pred.replace('[unused0]', '').replace('[unused3]', '').replace('[PAD]', '').replace('[unused1]', '').replace(r' +', ' ').replace(' [unused2] ', '<q>').replace('[unused2]', '').strip()
                     gold_str = gold.strip()
-                    if(self.args.recall_eval):
+                    if(self.args.recall_eval): # evaluate using recall
                         _pred_str = ''
                         gap = 1e3
                         for sent in pred_str.split('<q>'):
                             can_pred_str = _pred_str+ '<q>'+sent.strip()
+                            # calculate gaps between predicted and gold
                             can_gap = math.fabs(len(_pred_str.split())-len(gold_str.split()))
                             # if(can_gap>=gap):
                             if(len(can_pred_str.split())>=len(gold_str.split())+10):
@@ -235,13 +236,13 @@ class Translator(object):
         segs = batch.segs
         mask_src = batch.mask_src
 
-        src_features = self.model.bert(src, segs, mask_src)
+        src_features = self.model.bert(src, segs, mask_src) # bert encoder outputs
         dec_states = self.model.decoder.init_decoder_state(src, src_features, with_cache=True)
         device = src_features.device
 
         # Tile states and memory beam_size times.
         dec_states.map_batch_fn(
-            lambda state, dim: tile(state, beam_size, dim=dim))
+            lambda state, dim: tile(state, beam_size, dim=dim)) # state: dec_states.src, dim: 0
         src_features = tile(src_features, beam_size, dim=0)
         batch_offset = torch.arange(
             batch_size, dtype=torch.long, device=device)
@@ -251,6 +252,7 @@ class Translator(object):
             step=beam_size,
             dtype=torch.long,
             device=device)
+        # return a tensor filled with the [BOS] token
         alive_seq = torch.full(
             [batch_size * beam_size, 1],
             self.start_token,
@@ -258,6 +260,7 @@ class Translator(object):
             device=device)
 
         # Give full probability to the first beam on the first step.
+        # [0., -inf, ..., -inf, 0., -inf, ..., -inf, ...]
         topk_log_probs = (
             torch.tensor([0.0] + [float("-inf")] * (beam_size - 1),
                          device=device).repeat(batch_size))
@@ -265,14 +268,15 @@ class Translator(object):
         # Structure that holds finished hypotheses.
         hypotheses = [[] for _ in range(batch_size)]  # noqa: F812
 
+        # results dict
         results = {}
         results["predictions"] = [[] for _ in range(batch_size)]  # noqa: F812
         results["scores"] = [[] for _ in range(batch_size)]  # noqa: F812
         results["gold_score"] = [0] * batch_size
         results["batch"] = batch
 
-        for step in range(max_length):
-            decoder_input = alive_seq[:, -1].view(1, -1)
+        for step in range(max_length): # looping over every token prediction step
+            decoder_input = alive_seq[:, -1].view(1, -1) # [x, y] -> [y, x]
 
             # Decoder forward.
             decoder_input = decoder_input.transpose(0,1)
@@ -288,7 +292,8 @@ class Translator(object):
                 log_probs[:, self.end_token] = -1e20
 
             # Multiply probs by the beam probability.
-            log_probs += topk_log_probs.view(-1).unsqueeze(1)
+            # [batch_size * beam_size, vocab_size] + [batch_size * beam_size, 1]
+            log_probs += topk_log_probs.view(-1).unsqueeze(1) # [batch_size * beam_size, vocab_size]
 
             alpha = self.global_scorer.alpha
             length_penalty = ((5.0 + (step + 1)) / 6.0) ** alpha
@@ -296,32 +301,34 @@ class Translator(object):
             # Flatten probs into a list of possibilities.
             curr_scores = log_probs / length_penalty
 
+            # trigram blocking
             if(self.args.block_trigram):
                 cur_len = alive_seq.size(1)
                 if(cur_len>3):
-                    for i in range(alive_seq.size(0)):
+                    for i in range(alive_seq.size(0)): # looping through batch * beam size
                         fail = False
-                        words = [int(w) for w in alive_seq[i]]
-                        words = [self.vocab.ids_to_tokens[w] for w in words]
-                        words = ' '.join(words).replace(' ##','').split()
+                        words = [int(w) for w in alive_seq[i]] # get token ids
+                        words = [self.vocab.ids_to_tokens[w] for w in words] # convert ids to tokens
+                        words = ' '.join(words).replace(' ##','').split() # create token list
                         if(len(words)<=3):
                             continue
+                        # len(words)-1 so that index range does not go out of bounds
                         trigrams = [(words[i-1],words[i],words[i+1]) for i in range(1,len(words)-1)]
                         trigram = tuple(trigrams[-1])
-                        if trigram in trigrams[:-1]:
+                        if trigram in trigrams[:-1]: # matching trigrams
                             fail = True
                         if fail:
-                            curr_scores[i] = -10e20
+                            curr_scores[i] = -10e20 # assign very low score for this beam
 
-            curr_scores = curr_scores.reshape(-1, beam_size * vocab_size)
-            topk_scores, topk_ids = curr_scores.topk(beam_size, dim=-1)
+            curr_scores = curr_scores.reshape(-1, beam_size * vocab_size) # [batch, beam_size * vocab_size]
+            topk_scores, topk_ids = curr_scores.topk(beam_size, dim=-1) # return top beam_size number of scores
 
             # Recover log probs.
             topk_log_probs = topk_scores * length_penalty
 
             # Resolve beam origin and true word ids.
-            topk_beam_index = topk_ids.div(vocab_size)
-            topk_ids = topk_ids.fmod(vocab_size)
+            topk_beam_index = topk_ids.div(vocab_size) # [batch_size, beam_size]
+            topk_ids = topk_ids.fmod(vocab_size) # [batch_size, beam_size]
 
             # Map beam_index to batch_index in the flat representation.
             batch_index = (
@@ -329,38 +336,38 @@ class Translator(object):
                     + beam_offset[:topk_beam_index.size(0)].unsqueeze(1))
             select_indices = batch_index.view(-1)
 
-            # Append last prediction.
+            # Append last prediction according to the batch and topk indices.
             alive_seq = torch.cat(
                 [alive_seq.index_select(0, select_indices),
                  topk_ids.view(-1, 1)], -1)
 
-            is_finished = topk_ids.eq(self.end_token)
-            if step + 1 == max_length:
-                is_finished.fill_(1)
+            is_finished = topk_ids.eq(self.end_token) # label end token as true, [batch_size, beam_size]
+            if step + 1 == max_length: # one more step until max_length
+                is_finished.fill_(1) # fill all with 1 to signal that seq is finished
             # End condition is top beam is finished.
-            end_condition = is_finished[:, 0].eq(1)
+            end_condition = is_finished[:, 0].eq(1) # [batch_size, beam_size]
             # Save finished hypotheses.
-            if is_finished.any():
-                predictions = alive_seq.view(-1, beam_size, alive_seq.size(-1))
-                for i in range(is_finished.size(0)):
-                    b = batch_offset[i]
-                    if end_condition[i]:
-                        is_finished[i].fill_(1)
-                    finished_hyp = is_finished[i].nonzero().view(-1)
+            if is_finished.any(): # return True if end token is present
+                predictions = alive_seq.view(-1, beam_size, alive_seq.size(-1)) # split into batches
+                for i in range(is_finished.size(0)): # looping in batches
+                    b = batch_offset[i] # select batch
+                    if end_condition[i]: # True if end token
+                        is_finished[i].fill_(1) # fill with 1
+                    finished_hyp = is_finished[i].nonzero().view(-1) # return indices of nonzero elements (end tokens)
                     # Store finished hypotheses for this batch.
                     for j in finished_hyp:
                         hypotheses[b].append((
                             topk_scores[i, j],
-                            predictions[i, j, 1:]))
+                            predictions[i, j, 1:])) # append topk scores and predictions to the current batch
                     # If the batch reached the end, save the n_best hypotheses.
                     if end_condition[i]:
                         best_hyp = sorted(
-                            hypotheses[b], key=lambda x: x[0], reverse=True)
+                            hypotheses[b], key=lambda x: x[0], reverse=True) # sort based on score
                         score, pred = best_hyp[0]
 
                         results["scores"][b].append(score)
                         results["predictions"][b].append(pred)
-                non_finished = end_condition.eq(0).nonzero().view(-1)
+                non_finished = end_condition.eq(0).nonzero().view(-1) # get indices for tokens != end tokens
                 # If all sentences are translated, no need to go further.
                 if len(non_finished) == 0:
                     break
@@ -374,7 +381,7 @@ class Translator(object):
             select_indices = batch_index.view(-1)
             src_features = src_features.index_select(0, select_indices)
             dec_states.map_batch_fn(
-                lambda state, dim: state.index_select(dim, select_indices))
+                lambda state, dim: state.index_select(dim, select_indices)) # state: dec_states.src, dim: 0
 
         return results
 

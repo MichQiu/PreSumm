@@ -95,6 +95,15 @@ def test_rouge(temp_dir, cand, ref):
 def tile(x, count, dim=0):
     """
     Tiles x on dimension dim count times.
+    In other words, repeat tensor in every batch by count number of times, proceeding from the first batch to the last
+    E.g. [[[1, 2, 3],                   [[1, 2, 3],
+           [2, 3, 4]],     count = 2     [2, 3, 4]],
+          [[6, 7, 8],       ----->      [[1, 2, 3],
+           [7, 8, 9]]]                   [2, 3, 4]],
+                                        [[6, 7, 8],
+                                         [7, 8, 9]],
+                                        [[6, 7, 8],
+                                         [7, 8, 9]
     """
     perm = list(range(len(x.size())))
     if dim != 0:
@@ -108,7 +117,7 @@ def tile(x, count, dim=0):
          .repeat(count, 1) \
          .transpose(0, 1) \
          .contiguous() \
-         .view(*out_size)
+         .view(*out_size) # [count*x.size(0), x.size(1), ..., x.size(-1)]
     if dim != 0:
         x = x.permute(perm).contiguous()
     return x
