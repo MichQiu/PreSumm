@@ -41,13 +41,14 @@ def load_json(p, lower):
             tokens = [t.lower() for t in tokens]
         if (tokens[0] == '@highlight'):
             flag = True
-            tgt.append([])
+            tgt.append([]) # '@highlight' is an indicator of the beginning of a target sentence
             continue
         if (flag):
-            tgt[-1].extend(tokens)
+            tgt[-1].extend(tokens) # add tokens to tgt list
         else:
-            source.append(tokens)
+            source.append(tokens) # append tokens to source if otherwise
 
+    # clean tokens
     source = [clean(' '.join(sent)).split() for sent in source]
     tgt = [clean(' '.join(sent)).split() for sent in tgt]
     return source, tgt
@@ -56,11 +57,14 @@ def load_json(p, lower):
 
 def load_xml(p):
     tree = ET.parse(p)
+    # root has a tag and a dictionary of attributes, children nodes for iteration, Children are nested,
+    # and we can access specific child nodes by index
     root = tree.getroot()
     title, byline, abs, paras = [], [], [], []
-    title_node = list(root.iter('hedline'))
+    title_node = list(root.iter('hedline')) # create a list for hedline subtree
     if (len(title_node) > 0):
         try:
+            # iterate through the subtree of title_node named 'hl1', the title is the first element
             title = [p.text.lower().split() for p in list(title_node[0].iter('hl1'))][0]
         except:
             print(p)
@@ -159,42 +163,43 @@ def cal_rouge(evaluated_ngrams, reference_ngrams):
 
 
 def greedy_selection(doc_sent_list, abstract_sent_list, summary_size):
+    """Generating oracle summaries"""
     def _rouge_clean(s):
         return re.sub(r'[^a-zA-Z0-9 ]', '', s)
 
     max_rouge = 0.0
     abstract = sum(abstract_sent_list, [])
     abstract = _rouge_clean(' '.join(abstract)).split()
-    sents = [_rouge_clean(' '.join(s)).split() for s in doc_sent_list]
-    evaluated_1grams = [_get_word_ngrams(1, [sent]) for sent in sents]
-    reference_1grams = _get_word_ngrams(1, [abstract])
+    sents = [_rouge_clean(' '.join(s)).split() for s in doc_sent_list] # list of sentences from document
+    evaluated_1grams = [_get_word_ngrams(1, [sent]) for sent in sents] # get unigrams from each sentence, list of sets
+    reference_1grams = _get_word_ngrams(1, [abstract]) # get unigrams from abstract
     evaluated_2grams = [_get_word_ngrams(2, [sent]) for sent in sents]
     reference_2grams = _get_word_ngrams(2, [abstract])
 
     selected = []
-    for s in range(summary_size):
+    for s in range(summary_size): # summary_size = number of sentences
         cur_max_rouge = max_rouge
-        cur_id = -1
+        cur_id = -1 # current id
         for i in range(len(sents)):
             if (i in selected):
                 continue
             c = selected + [i]
-            candidates_1 = [evaluated_1grams[idx] for idx in c]
-            candidates_1 = set.union(*map(set, candidates_1))
+            candidates_1 = [evaluated_1grams[idx] for idx in c] # list of sets
+            candidates_1 = set.union(*map(set, candidates_1)) # union of sets from each set function mapping
             candidates_2 = [evaluated_2grams[idx] for idx in c]
             candidates_2 = set.union(*map(set, candidates_2))
-            rouge_1 = cal_rouge(candidates_1, reference_1grams)['f']
+            rouge_1 = cal_rouge(candidates_1, reference_1grams)['f'] # calculate f1 scores
             rouge_2 = cal_rouge(candidates_2, reference_2grams)['f']
             rouge_score = rouge_1 + rouge_2
             if rouge_score > cur_max_rouge:
-                cur_max_rouge = rouge_score
-                cur_id = i
+                cur_max_rouge = rouge_score # update rouge score to the higher score
+                cur_id = i # update current id
         if (cur_id == -1):
             return selected
         selected.append(cur_id)
-        max_rouge = cur_max_rouge
+        max_rouge = cur_max_rouge # update max rouge
 
-    return sorted(selected)
+    return sorted(selected) # return sorted sentence ids
 
 
 def hashhex(s):
@@ -215,7 +220,7 @@ class BertData():
         self.tgt_bos = '[unused0]'
         self.tgt_eos = '[unused1]'
         self.tgt_sent_split = '[unused2]'
-        self.sep_vid = self.tokenizer.vocab[self.sep_token]
+        self.sep_vid = self.tokenizer.vocab[self.sep_token] # token ids
         self.cls_vid = self.tokenizer.vocab[self.cls_token]
         self.pad_vid = self.tokenizer.vocab[self.pad_token]
 
@@ -224,48 +229,54 @@ class BertData():
         if ((not is_test) and len(src) == 0):
             return None
 
-        original_src_txt = [' '.join(s) for s in src]
+        original_src_txt = [' '.join(s) for s in src] # create list of sentences from src
 
+        # get list of indices for each sentence larger than the min length in src
         idxs = [i for i, s in enumerate(src) if (len(s) > self.args.min_src_ntokens_per_sent)]
 
-        _sent_labels = [0] * len(src)
+        _sent_labels = [0] * len(src) # initialize sent labels on src
         for l in sent_labels:
-            _sent_labels[l] = 1
+            _sent_labels[l] = 1 # set labels to 1 from sent_labels
 
+        # get a list of tokens up to a max number for each sentence
         src = [src[i][:self.args.max_src_ntokens_per_sent] for i in idxs]
-        sent_labels = [_sent_labels[i] for i in idxs]
-        src = src[:self.args.max_src_nsents]
+        sent_labels = [_sent_labels[i] for i in idxs] # get a list of sentence labels
+        src = src[:self.args.max_src_nsents] # only keep src up to the max number of sentences
         sent_labels = sent_labels[:self.args.max_src_nsents]
 
-        if ((not is_test) and len(src) < self.args.min_src_nsents):
+        if ((not is_test) and len(src) < self.args.min_src_nsents): # smaller than min number of sents
             return None
 
-        src_txt = [' '.join(sent) for sent in src]
-        text = ' {} {} '.format(self.sep_token, self.cls_token).join(src_txt)
+        src_txt = [' '.join(sent) for sent in src] # join tokens back to sentence in src
+        text = ' {} {} '.format(self.sep_token, self.cls_token).join(src_txt) # insert SEP and CLS tokens between each sent
 
-        src_subtokens = self.tokenizer.tokenize(text)
+        src_subtokens = self.tokenizer.tokenize(text) # tokenization
 
-        src_subtokens = [self.cls_token] + src_subtokens + [self.sep_token]
-        src_subtoken_idxs = self.tokenizer.convert_tokens_to_ids(src_subtokens)
-        _segs = [-1] + [i for i, t in enumerate(src_subtoken_idxs) if t == self.sep_vid]
-        segs = [_segs[i] - _segs[i - 1] for i in range(1, len(_segs))]
+        src_subtokens = [self.cls_token] + src_subtokens + [self.sep_token] # add CLS and SEP to start and finish
+        src_subtoken_idxs = self.tokenizer.convert_tokens_to_ids(src_subtokens) # convert to token ids (list)
+        # get list of SEP token indices (not vocab ids), indicates the position of SEP tokens in src
+        _segs = [-1] + [i for i, t in enumerate(src_subtoken_idxs) if t == self.sep_vid] # add [-1] to first element as a minimum
+        # list of segment lengths
+        segs = [_segs[i] - _segs[i - 1] for i in range(1, len(_segs))] # len(_segs) = sum(sep)+1
         segments_ids = []
         for i, s in enumerate(segs):
             if (i % 2 == 0):
-                segments_ids += s * [0]
+                segments_ids += s * [0] # set sentence segments starting with even indices with 0
             else:
-                segments_ids += s * [1]
-        cls_ids = [i for i, t in enumerate(src_subtoken_idxs) if t == self.cls_vid]
-        sent_labels = sent_labels[:len(cls_ids)]
+                segments_ids += s * [1] # odd indices to 1, e.g. segs = [2, 3, 2] -> [0, 0, 1, 1, 1, 0, 0]
+        cls_ids = [i for i, t in enumerate(src_subtoken_idxs) if t == self.cls_vid] # list of cls ids
+        sent_labels = sent_labels[:len(cls_ids)] # condense sent labels down to number of cls ids
 
+        # tokenize tgt sent using bert basic tokenizer and add BOS, sent_split and EOS tokens
         tgt_subtokens_str = '[unused0] ' + ' [unused2] '.join(
             [' '.join(self.tokenizer.tokenize(' '.join(tt), use_bert_basic_tokenizer=use_bert_basic_tokenizer)) for tt in tgt]) + ' [unused1]'
-        tgt_subtoken = tgt_subtokens_str.split()[:self.args.max_tgt_ntokens]
+        tgt_subtoken = tgt_subtokens_str.split()[:self.args.max_tgt_ntokens] # condense to a list of tokens under max
         if ((not is_test) and len(tgt_subtoken) < self.args.min_tgt_ntokens):
             return None
 
         tgt_subtoken_idxs = self.tokenizer.convert_tokens_to_ids(tgt_subtoken)
 
+        # get source and target text
         tgt_txt = '<q>'.join([' '.join(tt) for tt in tgt])
         src_txt = [original_src_txt[i] for i in idxs]
 
@@ -280,10 +291,12 @@ def format_to_bert(args):
     for corpus_type in datasets:
         a_lst = []
         for json_f in glob.glob(pjoin(args.raw_path, '*' + corpus_type + '.*.json')):
-            real_name = json_f.split('/')[-1]
+            real_name = json_f.split('/')[-1] # real name of file
+            # append a tuple containing the file information and replace the real name
             a_lst.append((corpus_type, json_f, args, pjoin(args.save_path, real_name.replace('json', 'bert.pt'))))
         print(a_lst)
-        pool = Pool(args.n_cpus)
+        pool = Pool(args.n_cpus) # set number of worker processes based on number of cpus
+        # chops the iterable (a_lst) into a number of chunks which it submits to the process pool as separate tasks
         for d in pool.imap(_format_to_bert, a_lst):
             pass
 
@@ -317,10 +330,11 @@ def _format_to_bert(params):
         if (b_data is None):
             continue
         src_subtoken_idxs, sent_labels, tgt_subtoken_idxs, segments_ids, cls_ids, src_txt, tgt_txt = b_data
+        # create data dict for preprocessed data
         b_data_dict = {"src": src_subtoken_idxs, "tgt": tgt_subtoken_idxs,
                        "src_sent_labels": sent_labels, "segs": segments_ids, 'clss': cls_ids,
                        'src_txt': src_txt, "tgt_txt": tgt_txt}
-        datasets.append(b_data_dict)
+        datasets.append(b_data_dict) # append data dict to datasets list
     logger.info('Processed instances %d' % len(datasets))
     logger.info('Saving to %s' % save_file)
     torch.save(datasets, save_file)
@@ -333,9 +347,10 @@ def format_to_lines(args):
     for corpus_type in ['valid', 'test', 'train']:
         temp = []
         for line in open(pjoin(args.map_path, 'mapping_' + corpus_type + '.txt')):
-            temp.append(hashhex(line.strip()))
-        corpus_mapping[corpus_type] = {key.strip(): 1 for key in temp}
+            temp.append(hashhex(line.strip())) # append mapping paths
+        corpus_mapping[corpus_type] = {key.strip(): 1 for key in temp} # map corpus file paths to corpus_mapping dict
     train_files, valid_files, test_files = [], [], []
+    # append corpus file paths to their associated lists
     for f in glob.glob(pjoin(args.raw_path, '*.json')):
         real_name = f.split('/')[-1].split('.')[0]
         if (real_name in corpus_mapping['valid']):
@@ -349,23 +364,23 @@ def format_to_lines(args):
 
     corpora = {'train': train_files, 'valid': valid_files, 'test': test_files}
     for corpus_type in ['train', 'valid', 'test']:
-        a_lst = [(f, args) for f in corpora[corpus_type]]
+        a_lst = [(f, args) for f in corpora[corpus_type]] # consists of a number of file paths for a certain corpus type
         pool = Pool(args.n_cpus)
         dataset = []
         p_ct = 0
         for d in pool.imap_unordered(_format_to_lines, a_lst):
-            dataset.append(d)
-            if (len(dataset) > args.shard_size):
+            dataset.append(d) # append working processes to dataset
+            if (len(dataset) > args.shard_size): # save the formatted dataset if larger than shard size
                 pt_file = "{:s}.{:s}.{:d}.json".format(args.save_path, corpus_type, p_ct)
                 with open(pt_file, 'w') as save:
                     # save.write('\n'.join(dataset))
                     save.write(json.dumps(dataset))
                     p_ct += 1
-                    dataset = []
+                    dataset = [] # reset list
 
         pool.close()
         pool.join()
-        if (len(dataset) > 0):
+        if (len(dataset) > 0): # save remaining formatted datasets that are smaller than shard size
             pt_file = "{:s}.{:s}.{:d}.json".format(args.save_path, corpus_type, p_ct)
             with open(pt_file, 'w') as save:
                 # save.write('\n'.join(dataset))
@@ -375,6 +390,7 @@ def format_to_lines(args):
 
 
 def _format_to_lines(params):
+    """Obtain source and target texts and store in a dict"""
     f, args = params
     print(f)
     source, tgt = load_json(f, args.lower)
