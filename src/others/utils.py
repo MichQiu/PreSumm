@@ -52,7 +52,7 @@ def process(params):
 
 
 def test_rouge(temp_dir, cand, ref):
-    # list of list of summary sentences split in words
+    # list of summary sentences
     candidates = [line.strip() for line in open(cand, encoding='utf-8')]
     references = [line.strip() for line in open(ref, encoding='utf-8')]
     print(len(candidates)) # number of sentences

@@ -125,15 +125,16 @@ def validate_abs(args, device_id):
         xent_lst = []
         for i, cp in enumerate(cp_files):
             step = int(cp.split('.')[-2].split('_')[-1])
+            # args.test_start_from: the step to start testing from
             if (args.test_start_from != -1 and step < args.test_start_from):
-                xent_lst.append((1e6, cp))
+                xent_lst.append((1e6, cp)) # set really high loss for cp files whose steps are lower than test start point
                 continue
             xent = validate(args, device_id, cp, step)
             xent_lst.append((xent, cp))
             max_step = xent_lst.index(min(xent_lst))
             if (i - max_step > 10):
                 break
-        xent_lst = sorted(xent_lst, key=lambda x: x[0])[:5]
+        xent_lst = sorted(xent_lst, key=lambda x: x[0])[:5] # get the lowest five xent
         logger.info('PPL %s' % str(xent_lst))
         for xent, cp in xent_lst:
             step = int(cp.split('.')[-2].split('_')[-1])
@@ -186,6 +187,7 @@ def validate(args, device_id, pt, step):
                                         args.batch_size, device,
                                         shuffle=False, is_test=False)
 
+    # get tokenizer and symbols for special tokens
     tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=True, cache_dir=args.temp_dir)
     symbols = {'BOS': tokenizer.vocab['[unused0]'], 'EOS': tokenizer.vocab['[unused1]'],
                'PAD': tokenizer.vocab['[PAD]'], 'EOQ': tokenizer.vocab['[unused2]']}
@@ -198,6 +200,7 @@ def validate(args, device_id, pt, step):
 
 
 def test_abs(args, device_id, pt, step):
+    """Testing for abstractive"""
     device = "cpu" if args.visible_gpus == '-1' else "cuda"
     if (pt != ''):
         test_from = pt
@@ -221,11 +224,12 @@ def test_abs(args, device_id, pt, step):
     tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=True, cache_dir=args.temp_dir)
     symbols = {'BOS': tokenizer.vocab['[unused0]'], 'EOS': tokenizer.vocab['[unused1]'],
                'PAD': tokenizer.vocab['[PAD]'], 'EOQ': tokenizer.vocab['[unused2]']}
-    predictor = build_predictor(args, tokenizer, symbols, model, logger)
+    predictor = build_predictor(args, tokenizer, symbols, model, logger) # build predictor for test set
     predictor.translate(test_iter, step)
 
 
 def test_text_abs(args, device_id, pt, step):
+    """Testing for """
     device = "cpu" if args.visible_gpus == '-1' else "cuda"
     if (pt != ''):
         test_from = pt
@@ -254,6 +258,7 @@ def test_text_abs(args, device_id, pt, step):
 
 
 def baseline(args, cal_lead=False, cal_oracle=False):
+    """Baseline model on cpu"""
     test_iter = data_loader.Dataloader(args, load_dataset(args, 'test', shuffle=False),
                                        args.batch_size, 'cpu',
                                        shuffle=False, is_test=True)
@@ -298,7 +303,7 @@ def train_abs_single(args, device_id):
     else:
         checkpoint = None
 
-    if (args.load_from_extractive != ''):
+    if (args.load_from_extractive != ''): # load weights from extractive model
         logger.info('Loading bert from extractive model %s' % args.load_from_extractive)
         bert_from_extractive = torch.load(args.load_from_extractive, map_location=lambda storage, loc: storage)
         bert_from_extractive = bert_from_extractive['model']
@@ -313,7 +318,7 @@ def train_abs_single(args, device_id):
                                       shuffle=True, is_test=False)
 
     model = AbsSummarizer(args, device, checkpoint, bert_from_extractive)
-    if (args.sep_optim):
+    if (args.sep_optim): # build two different optimizers for encoder and decoder
         optim_bert = model_builder.build_optim_bert(args, model, checkpoint)
         optim_dec = model_builder.build_optim_dec(args, model, checkpoint)
         optim = [optim_bert, optim_dec]
@@ -326,6 +331,7 @@ def train_abs_single(args, device_id):
     symbols = {'BOS': tokenizer.vocab['[unused0]'], 'EOS': tokenizer.vocab['[unused1]'],
                'PAD': tokenizer.vocab['[PAD]'], 'EOQ': tokenizer.vocab['[unused2]']}
 
+    # use abstractive summarization loss
     train_loss = abs_loss(model.generator, symbols, model.vocab_size, device, train=True,
                           label_smoothing=args.label_smoothing)
 

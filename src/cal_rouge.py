@@ -51,35 +51,38 @@ def process(data):
 
 def chunks(l, n):
     """Yield successive n-sized chunks from l."""
-    for i in range(0, len(l), n):
+    for i in range(0, len(l), n): # in n steps
         yield l[i:i + n]
 
 def test_rouge(cand, ref,num_processes):
     """Calculate ROUGE scores of sequences passed as an iterator
        e.g. a list of str, an open file, StringIO or even sys.stdin
     """
+    # list of summary sentences
     candidates = [line.strip() for line in cand]
     references = [line.strip() for line in ref]
 
     print(len(candidates))
     print(len(references))
     assert len(candidates) == len(references)
-    candidates_chunks = list(chunks(candidates, int(len(candidates)/num_processes)))
+    # split sentences based on the number of processes/GPUs available
+    candidates_chunks = list(chunks(candidates, int(len(candidates)/num_processes))) # n-sized sentence chunks
     references_chunks = list(chunks(references, int(len(references)/num_processes)))
     n_pool = len(candidates_chunks)
     arg_lst = []
     for i in range(n_pool):
-        arg_lst.append((candidates_chunks[i],references_chunks[i],i))
-    pool = Pool(n_pool)
-    results = pool.map(process,arg_lst)
+        arg_lst.append((candidates_chunks[i],references_chunks[i],i)) # append chunks
+    pool = Pool(n_pool) # number of worker processes to use = len(candidate_chunks)
+    # map chunks in arg_lst to the process function to get rouge results, returns a list of results dict
+    results = pool.map(process, arg_lst) # [{...}, {...}, ..., {...}]
     final_results = {}
-    for i,r in enumerate(results):
-        for k in r:
+    for i,r in enumerate(results): # r: result_dicts
+        for k in r: # k: keys
             if(k not in final_results):
-                final_results[k] = r[k]*len(candidates_chunks[i])
-            else:
-                final_results[k] += r[k] * len(candidates_chunks[i])
-    for k in final_results:
+                final_results[k] = r[k]*len(candidates_chunks[i]) # multiply results e.g. Rouge by length of chunks
+            else: # add existing rouge scores with other chunks, different rouge scores for different chunks
+                final_results[k] += r[k] * len(candidates_chunks[i]) # should usually add up to candidate length
+    for k in final_results: # transform results to be divided by candidate length to get the more complete result
         final_results[k] = final_results[k]/len(candidates)
     return final_results
 def rouge_results_to_str(results_dict):

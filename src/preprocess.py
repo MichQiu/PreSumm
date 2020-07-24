@@ -41,10 +41,11 @@ def str2bool(v):
 
 
 if __name__ == '__main__':
+    # argument parser for preprocessing
     parser = argparse.ArgumentParser()
     parser.add_argument("-pretrained_model", default='bert', type=str)
 
-    parser.add_argument("-mode", default='', type=str)
+    parser.add_argument("-mode", default='', type=str) # format_to_bert, format_to_lines, tokenize
     parser.add_argument("-select_mode", default='greedy', type=str)
     parser.add_argument("-map_path", default='../../data/')
     parser.add_argument("-raw_path", default='../../line_data')
@@ -58,6 +59,9 @@ if __name__ == '__main__':
     parser.add_argument('-min_tgt_ntokens', default=5, type=int)
     parser.add_argument('-max_tgt_ntokens', default=500, type=int)
 
+    # nargs=? -> allows optional arguments to be provided, if option string is present but not followed by a
+    # command-line argument, the value in const will be used. If no argument is provided at all, the value in default
+    # will be used
     parser.add_argument("-lower", type=str2bool, nargs='?',const=True,default=True)
     parser.add_argument("-use_bert_basic_tokenizer", type=str2bool, nargs='?',const=True,default=False)
 
@@ -70,4 +74,4 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     init_logger(args.log_file)
-    eval('data_builder.'+args.mode + '(args)')
+    eval('data_builder.'+args.mode + '(args)') # parse function and execute

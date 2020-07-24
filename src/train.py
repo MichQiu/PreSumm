@@ -111,7 +111,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     args.gpu_ranks = [int(i) for i in range(len(args.visible_gpus.split(',')))]
     args.world_size = len(args.gpu_ranks)
-    os.environ["CUDA_VISIBLE_DEVICES"] = args.visible_gpus
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.visible_gpus # A mapping object representing the string environment.
 
     init_logger(args.log_file)
     device = "cpu" if args.visible_gpus == '-1' else "cuda"
@@ -126,14 +126,14 @@ if __name__ == '__main__':
             baseline(args, cal_lead=True)
         elif (args.mode == 'oracle'):
             baseline(args, cal_oracle=True)
-        if (args.mode == 'test'):
+        if (args.mode == 'test'): # test for abs
             cp = args.test_from
             try:
                 step = int(cp.split('.')[-2].split('_')[-1])
             except:
                 step = 0
             test_abs(args, device_id, cp, step)
-        elif (args.mode == 'test_text'):
+        elif (args.mode == 'test_text'): # test for ext abs
             cp = args.test_from
             try:
                 step = int(cp.split('.')[-2].split('_')[-1])

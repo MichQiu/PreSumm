@@ -14,12 +14,13 @@ def str2bool(v):
 
 
 def n_grams(tokens, n):
+    """Get a list of n-grams(tuple) from a list of tokens"""
     l = len(tokens)
     return [tuple(tokens[i:i + n]) for i in range(l) if i + n < l]
 
 def has_repeat(elements):
-    d = set(elements)
-    return len(d) < len(elements)
+    d = set(elements) # remove repeats when initialized with sets
+    return len(d) < len(elements) # bool condition True when repeats are removed, leaving len(d) smaller
 
 def cal_self_repeat(summary):
     ngram_repeats = {2: 0, 4: 0, 8: 0}
